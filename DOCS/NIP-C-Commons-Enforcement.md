@@ -204,26 +204,169 @@ Using standard NIP-33 `#a` filter (already supported by relays):
 }
 ```
 
-## NIP-42 AUTH Extension
+## CAP-AUTH: Self-Contained Authorization
 
-For private commons, extend AUTH with cap:
+For both **read** (subscriptions) and **write** (publishing) access to protected commons, clients authenticate by presenting a **self-contained CAP-AUTH event**. This extends NIP-42 with embedded capability proof.
+
+### Why Self-Contained?
+
+Traditional approach (reference-based):
+```
+1. Client references CAP by ID
+2. Relay fetches CAP from storage
+3. Relay validates CAP
+4. Multiple round-trips, external dependencies
+```
+
+Self-contained approach:
+```
+1. Client embeds FULL CAP in signed AUTH event
+2. Relay validates in one step
+3. No fetching, no external dependencies
+4. Everything needed is in the message
+```
+
+### CAP-AUTH Event Structure
 
 ```json
-// Standard NIP-42 challenge
-["AUTH", "<challenge>"]
-
-// Response with cap for commons read access
 {
   "kind": 22242,
+  "pubkey": "<grantee_pubkey>",
+  "created_at": 1704067200,
   "tags": [
     ["relay", "wss://relay.example.com"],
-    ["challenge", "<challenge>"],
-    ["cap", "<cap_reference>"]
-  ]
+    ["challenge", "<relay_challenge>"],
+    ["cap", "<full_cap_event_as_json>"]
+  ],
+  "content": "",
+  "sig": "<grantee_signature>"
 }
 ```
 
-This allows relays to verify read access for private commons.
+The `cap` tag contains the **full CAP event as JSON**, not just a reference:
+
+```json
+["cap", "{\"kind\":39100,\"pubkey\":\"<collective>\",\"tags\":[[\"p\",\"<grantee>\"],[\"cap\",\"publish\",\"*\"],[\"a\",\"39002:<collective>:*\"]],\"sig\":\"...\"}"]
+```
+
+### Two Signatures, One Message
+
+| Signature | Proves |
+|-----------|--------|
+| **Outer** (AUTH event) | Sender is the grantee pubkey |
+| **Inner** (embedded CAP) | Collective authorized this grantee |
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  CAP-AUTH Event                                         │
+│  ├── pubkey: grantee_abc123        ← WHO is requesting  │
+│  ├── sig: [grantee's signature]    ← PROOF of identity  │
+│  └── tags:                                              │
+│       └── cap: {                                        │
+│             pubkey: collective_xyz  ← WHO authorized    │
+│             tags: [p, grantee_abc]  ← WHO is authorized │
+│             tags: [cap, publish, *] ← WHAT is allowed   │
+│             tags: [a, 39002:xyz:*]  ← WHERE it applies  │
+│             sig: [collective's sig] ← PROOF of grant    │
+│           }                                             │
+└─────────────────────────────────────────────────────────┘
+```
+
+### Relay Validation (Simple!)
+
+```javascript
+function validateCapAuth(authEvent) {
+  // 1. Verify outer signature (proves sender owns pubkey)
+  if (!verifySignature(authEvent))
+    return { ok: false, reason: "invalid auth signature" }
+
+  // 2. Extract embedded CAP
+  const capJson = authEvent.tags.find(t => t[0] === 'cap')?.[1]
+  const cap = JSON.parse(capJson)
+
+  // 3. Verify CAP signature (proves collective issued it)
+  if (!verifySignature(cap))
+    return { ok: false, reason: "invalid cap signature" }
+
+  // 4. Check grantee matches auth pubkey
+  const grantee = cap.tags.find(t => t[0] === 'p')?.[1]
+  if (grantee !== authEvent.pubkey)
+    return { ok: false, reason: "grantee mismatch" }
+
+  // 5. Check not expired
+  const expiry = cap.tags.find(t => t[0] === 'expiry')?.[1]
+  if (expiry && parseInt(expiry) < Date.now() / 1000)
+    return { ok: false, reason: "cap expired" }
+
+  // 6. Store grants for this connection
+  return {
+    ok: true,
+    pubkey: authEvent.pubkey,
+    grants: parseGrants(cap)
+  }
+}
+```
+
+### Connection State After AUTH
+
+Once validated, the relay stores the connection's permissions:
+
+```javascript
+connections.set(socketId, {
+  pubkey: "grantee_abc123",
+  caps: [
+    {
+      commons: "39002:collective_xyz:*",
+      actions: ["publish/*", "delete/*", "access/*"]
+    }
+  ]
+})
+```
+
+### Enforcement Points
+
+| Operation | Enforcement |
+|-----------|-------------|
+| **EVENT** (write) | Check connection has `publish` for target commons |
+| **REQ** (read) | Filter results to only commons connection has `access` for |
+
+### Full Flow
+
+```
+Client                              Relay
+  │                                   │
+  │  CONNECT (WebSocket)              │
+  │──────────────────────────────────>│
+  │                                   │
+  │  AUTH challenge                   │
+  │<──────────────────────────────────│
+  │                                   │
+  │  CAP-AUTH (signed, with full CAP) │
+  │──────────────────────────────────>│
+  │                                   │
+  │         ┌─────────────────────────┤
+  │         │ 1. Verify outer sig     │
+  │         │ 2. Parse embedded CAP   │
+  │         │ 3. Verify CAP sig       │
+  │         │ 4. Check grantee match  │
+  │         │ 5. Store permissions    │
+  │         └─────────────────────────┤
+  │                                   │
+  │  OK (authenticated)               │
+  │<──────────────────────────────────│
+  │                                   │
+  │  REQ / EVENT                      │
+  │──────────────────────────────────>│
+  │         (enforced per connection) │
+```
+
+### Benefits
+
+1. **No external fetches**: Everything needed is in the AUTH message
+2. **Simple validation**: Just signature checks and field matching
+3. **Works offline**: No dependency on CAP being stored elsewhere
+4. **Minimal relay changes**: ~50 lines of validation code
+5. **Standard Nostr**: Uses existing event structure and signatures
 
 ## Performance Considerations
 

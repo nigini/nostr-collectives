@@ -24,7 +24,7 @@ This enables:
 |-----------|-------------|-----|
 | **Collective Identity** | A group as an npub with stewards | [NIP-A](DOCS/NIP-A-Collective-Identity.md) |
 | **NosCAP** | Capability grants for actions in a space | [NIP-B](DOCS/NIP-B-NosCAP.md) |
-| **Space Enforcement** | Relay validation of caps | [NIP-C](DOCS/NIP-C-Space-Enforcement.md) |
+| **Commons Enforcement** | Relay validation of caps | [NIP-C](DOCS/NIP-C-Commons-Enforcement.md) |
 
 ## Architecture
 
@@ -130,7 +130,7 @@ flowchart TB
 
 **Attenuation**: Partner can only delegate rights it has. If Partner has `publish/*`, it can issue `publish/kind:1` (less), but not `delete/*` (more).
 
-### Sequence: Adding a Steward
+### Action: Adding a Steward/Member
 
 When a collective adds a new steward, a **CAP** is created and delivered via **gift wrap** (NIP-59) for privacy.
 
@@ -159,7 +159,7 @@ sequenceDiagram
     Note over A: Alice now holds a steward CAP<br/>🎫 publish/* | delete/* | delegate/*
 ```
 
-### Sequence: Publishing with a CAP
+### Action: Publishing with a CAP
 
 When a member publishes content to a commons, they attach their **CAP** as proof of authorization. The relay validates before accepting.
 
@@ -195,6 +195,49 @@ sequenceDiagram
     R-->>C: Event visible in commons feed
 ```
 
+### Action: Relay Enforcement
+
+The key insight: **CAP-AUTH is self-contained**. The client sends everything the relay needs in one signed message—no fetching, no external lookups.
+
+```mermaid
+flowchart LR
+    subgraph Client["👤 Client"]
+        AUTH["CAP-AUTH Event<br/>(signed by grantee)"]
+        CAP["🎫 Embedded CAP<br/>(signed by collective)"]
+        AUTH --> CAP
+    end
+
+    subgraph Relay["🖥️ Relay"]
+        V1["1️⃣ Verify outer sig"]
+        V2["2️⃣ Verify CAP sig"]
+        V3["3️⃣ grantee == pubkey?"]
+        V4["4️⃣ Not expired?"]
+        STORE["✅ Store permissions"]
+
+        V1 --> V2 --> V3 --> V4 --> STORE
+    end
+
+    AUTH ==>|"single message"| V1
+
+    style Client fill:#e0e7ff,stroke:#6366f1
+    style Relay fill:#d1fae5,stroke:#10b981
+    style AUTH fill:#fef3c7,stroke:#f59e0b
+    style CAP fill:#ddd6fe,stroke:#8b5cf6
+```
+
+**What makes it simple:**
+
+| Aspect | Traditional Auth | CAP-AUTH |
+|--------|------------------|----------|
+| External fetches | Yes (lookup permissions) | No (embedded in message) |
+| Database queries | Per-request | Once per connection |
+| Validation logic | Complex ACL rules | Signature verification |
+| Lines of code | Hundreds | ~50 |
+
+This means **any relay can add CAP enforcement with minimal effort**—it's just signature verification and field matching, patterns already familiar to Nostr relay developers.
+
+---
+
 ### Legend
 
 | Symbol | Meaning |
@@ -210,7 +253,7 @@ sequenceDiagram
 - [Overview](DOCS/00-Overview.md) - Core concepts and terminology
 - [NIP-A: Collective Identity](DOCS/NIP-A-Collective-Identity.md) - What a collective IS
 - [NIP-B: NosCAP](DOCS/NIP-B-NosCAP.md) - Capability system
-- [NIP-C: Space Enforcement](DOCS/NIP-C-Space-Enforcement.md) - Relay validation
+- [NIP-C: Commons Enforcement](DOCS/NIP-C-Commons-Enforcement.md) - Relay validation
 - [Socialroots Integration](DOCS/Socialroots-Integration.md) - Use case and architecture
 
 ## Roadmap
