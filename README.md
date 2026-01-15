@@ -28,72 +28,107 @@ This enables:
 
 ## Architecture
 
-### Ecosystem Overview
+### Use Case 1: Single Collective
 
-The following diagram shows how collectives, commons, members, and relays interact. Members hold **CAPs** (capability tokens) that authorize them to act within a collective's commons.
+A simple setup with one collective, one commons, and two members with different access levels.
 
 ```mermaid
 flowchart TB
-    subgraph Relay1["🖥️ Relay A<br/><i>enforces CAPs</i>"]
-        direction TB
+    subgraph Relay["🖥️ Relay<br/><i>enforces CAPs</i>"]
     end
 
-    subgraph Relay2["🖥️ Relay B<br/><i>enforces CAPs</i>"]
-        direction TB
+    subgraph Collective["🏛️ Research Collective"]
+        CID[("npub1research...")]
+        subgraph Commons["📂 Commons: Discussion"]
+            Posts["kind:1 notes"]
+        end
+    end
+
+    Alice["👤 Alice<br/><i>contributor</i>"]
+    Bob["👤 Bob<br/><i>reader</i>"]
+
+    CAP_Publish["🎫 CAP<br/>publish/kind:1"]
+    CAP_Read["🎫 CAP<br/>access/read"]
+
+    CID -->|"issues"| CAP_Publish
+    CID -->|"issues"| CAP_Read
+
+    CAP_Publish -.->|"held by"| Alice
+    CAP_Read -.->|"held by"| Bob
+
+    Alice -->|"✍️ publishes to"| Commons
+    Bob -->|"👁️ reads from"| Commons
+
+    Commons <-->|"stored on"| Relay
+
+    style Collective fill:#e0e7ff,stroke:#6366f1
+    style CAP_Publish fill:#d1fae5,stroke:#10b981
+    style CAP_Read fill:#fef3c7,stroke:#f59e0b
+```
+
+**Key points:**
+- Alice holds a **publish** CAP → can create content
+- Bob holds a **read** CAP → can only view content
+- The relay enforces these permissions
+
+---
+
+### Use Case 2: Federated Collectives
+
+Building on Use Case 1: A second collective receives a **delegatable CAP** and re-issues it to one of its own members. This enables **collective networks**.
+
+```mermaid
+flowchart TB
+    subgraph Relay["🖥️ Relay<br/><i>enforces CAPs</i>"]
     end
 
     subgraph Collective1["🏛️ Research Collective"]
         C1ID[("npub1research...")]
-        subgraph Commons1["📂 Commons: General"]
-            C1Posts["kind:1 notes"]
-        end
-        subgraph Commons2["📂 Commons: Papers"]
-            C2Posts["kind:30023 articles"]
+        subgraph Commons["📂 Commons: Discussion"]
+            Posts["kind:1 notes"]
         end
     end
 
-    subgraph Collective2["🏛️ Art Collective"]
-        C2ID[("npub1art...")]
-        subgraph Commons3["📂 Commons: Gallery"]
-            C3Posts["kind:1 notes"]
-        end
+    subgraph Collective2["🏛️ Partner University"]
+        C2ID[("npub1partner...")]
     end
 
-    subgraph Members["👥 Members"]
-        Alice["👤 Alice"]
-        Bob["👤 Bob"]
-        Carol["👤 Carol"]
-    end
+    Alice["👤 Alice<br/><i>Research member</i>"]
+    Carol["👤 Carol<br/><i>Partner member</i>"]
 
-    subgraph CAPs["🎫 Capabilities"]
-        CAP1["CAP: publish/*<br/>commons: General"]
-        CAP2["CAP: publish/kind:1<br/>commons: General"]
-        CAP3["CAP: publish/*<br/>commons: Gallery"]
-    end
+    CAP1["🎫 CAP (direct)<br/>publish/* + delegate"]
+    CAP2["🎫 CAP (delegated)<br/>publish/*<br/><i>parent: CAP1</i>"]
+    CAP3["🎫 CAP (re-issued)<br/>publish/kind:1<br/><i>parent: CAP2</i>"]
 
-    C1ID -->|"issues"| CAP1
-    C1ID -->|"issues"| CAP2
-    C2ID -->|"issues"| CAP3
+    C1ID -->|"1️⃣ issues"| CAP1
+    C1ID -->|"2️⃣ issues to partner"| CAP2
 
     CAP1 -.->|"held by"| Alice
-    CAP2 -.->|"held by"| Bob
+    CAP2 -.->|"held by"| C2ID
+
+    C2ID -->|"3️⃣ re-issues<br/>(attenuated)"| CAP3
     CAP3 -.->|"held by"| Carol
-    CAP3 -.->|"held by"| Alice
 
-    Alice -->|"publishes to"| Commons1
-    Alice -->|"publishes to"| Commons3
-    Bob -->|"publishes to"| Commons1
-    Carol -->|"publishes to"| Commons3
+    Alice -->|"✍️ publishes"| Commons
+    Carol -->|"✍️ publishes"| Commons
 
-    Commons1 -->|"stored on"| Relay1
-    Commons2 -->|"stored on"| Relay1
-    Commons3 -->|"stored on"| Relay2
+    Commons <-->|"stored on"| Relay
 
     style Collective1 fill:#e0e7ff,stroke:#6366f1
-    style Collective2 fill:#d1fae5,stroke:#10b981
-    style CAPs fill:#fef3c7,stroke:#f59e0b
-    style Members fill:#f3f4f6,stroke:#6b7280
+    style Collective2 fill:#fce7f3,stroke:#ec4899
+    style CAP1 fill:#d1fae5,stroke:#10b981
+    style CAP2 fill:#ddd6fe,stroke:#8b5cf6
+    style CAP3 fill:#fef3c7,stroke:#f59e0b
 ```
+
+**Key points:**
+- **Step 1**: Research Collective issues CAP to Alice (direct member)
+- **Step 2**: Research Collective issues CAP to Partner University (with `delegate` right)
+- **Step 3**: Partner University **re-issues** an attenuated CAP to Carol
+- Carol can now publish to Research's commons, authorized via the **delegation chain**
+- The relay validates the full chain: `Research → Partner → Carol`
+
+**Attenuation**: Partner can only delegate rights it has. If Partner has `publish/*`, it can issue `publish/kind:1` (less), but not `delete/*` (more).
 
 ### Sequence: Adding a Steward
 
