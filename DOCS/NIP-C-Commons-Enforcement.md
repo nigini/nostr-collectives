@@ -5,34 +5,90 @@
 
 ## Summary
 
-A **commons** is the collection of events belonging to a collective. Relays validate caps before accepting events in commons they enforce. This shifts access control from "pubkey allowlists" to "cap validation."
+A **commons** is a named space within a collective where members can publish content. Each commons is an addressable event (kind:39002) that can have its own membership via caps. Relays validate caps before accepting events in commons they enforce.
 
 ## Motivation
 
 Without relay enforcement:
 - Anyone can claim to post in a collective's commons
 - Caps are just metadata with no enforcement
-- Collectives have no control over their commons
+- Collectives have no control over their spaces
 
 Relay enforcement makes commons meaningful: only authorized members can publish.
 
 ## Specification
 
-### Commons Tag
+### Commons Definition (kind:39002)
 
-Events in a collective's commons include the `commons` tag:
+A commons is defined as an addressable event:
+
+```json
+{
+  "pubkey": "<collective_npub>",
+  "kind": 39002,
+  "tags": [
+    ["d", "<uuid>"]
+  ],
+  "content": "{
+    \"name\": \"Research Commons\",
+    \"about\": \"Space for research discussions\",
+    \"picture\": \"https://example.com/research.png\",
+    \"relays\": [\"wss://relay.example.com\"]
+  }",
+  "created_at": 1704067200,
+  "id": "...",
+  "sig": "..."
+}
+```
+
+**Fields in content (JSON)**:
+| Field | Required | Description |
+|-------|----------|-------------|
+| `name` | Yes | Human-readable name |
+| `about` | No | Description |
+| `picture` | No | Avatar/icon URL |
+| `relays` | No | Preferred relays for this commons |
+
+**Why UUID for d-tag?**
+- Guaranteed unique
+- Rename-safe (name can change, ID stays)
+- Simple to generate (`crypto.randomUUID()`)
+
+### Multiple Commons per Collective
+
+A collective can have multiple commons with different purposes:
+
+```
+Collective (npub1abc...)
+├── Commons: "Research" (uuid: 550e8400-...)
+│   └── Members: Alice, Bob, Carol
+├── Commons: "Announcements" (uuid: 6ba7b810-...)
+│   └── Members: Stewards only (read-only for others)
+└── Commons: "General" (uuid: 7c9e6679-...)
+    └── Members: All members
+```
+
+### Referencing Commons (NIP-33 `a` tag)
+
+Events reference commons using the standard `a` tag for addressable events:
 
 ```json
 {
   "pubkey": "<member_npub>",
   "kind": 1,
   "tags": [
-    ["commons", "<collective_npub>"],
+    ["a", "39002:<collective_npub>:<uuid>"],
     ["cap", "<cap_reference>"]
   ],
-  "content": "Content in the collective's commons"
+  "content": "Content in the commons"
 }
 ```
+
+**Benefits of `a` tag**:
+- Standard NIP-33 pattern
+- Already indexed by relays
+- No new infrastructure needed
+- Works with existing filters: `#a`
 
 ### Ownership Rules
 
@@ -63,45 +119,40 @@ Relays can enforce specific commons:
 {
   "enforced_commons": [
     {
-      "collective": "<collective_npub>",
+      "commons": "39002:<collective_npub>:<uuid>",
       "require_cap": true,
-      "allowed_kinds": [1, 30023, 30078],
-      "trust_stewards": ["<steward1_npub>", "<steward2_npub>"]
+      "allowed_kinds": [1, 30023, 30078]
     }
   ],
-  "default_policy": "accept"  // or "reject" for strict relays
+  "default_policy": "accept"
 }
 ```
 
 **Configuration options**:
-- `collective` - The collective's npub
-- `require_cap` - Whether caps are required for this commons
+- `commons` - The commons address (kind:pubkey:d-tag)
+- `require_cap` - Whether caps are required
 - `allowed_kinds` - Event kinds allowed in this commons
-- `trust_stewards` - Additional stewards relay trusts (beyond metadata)
 - `default_policy` - What to do for unconfigured commons
 
 ## Validation Flow
 
-```mermaid
-sequenceDiagram
-    participant C as Client
-    participant R as Relay
-
-    C->>R: EVENT with commons + cap
-
-    R->>R: 1. Is commons enforced?
-    R->>R: 2. Parse cap (inline or fetch)
-    R->>R: 3. Validate signature
-    R->>R: 4. Validate grantee match
-    R->>R: 5. Validate action covered
-    R->>R: 6. Check not expired
-    R->>R: 7. Check not revoked
-
-    alt Valid
-        R-->>C: OK
-    else Invalid
-        R-->>C: NOTICE "cap invalid: reason"
-    end
+```
+Client                              Relay
+  │                                   │
+  │  EVENT with a-tag + cap           │
+  │──────────────────────────────────>│
+  │                                   │
+  │                    1. Is commons enforced?
+  │                    2. Parse cap (inline or fetch)
+  │                    3. Validate cap signature
+  │                    4. Validate grantee matches pubkey
+  │                    5. Validate action covers this kind
+  │                    6. Validate commons matches cap
+  │                    7. Check not expired
+  │                    8. Check not revoked
+  │                                   │
+  │  OK / NOTICE "cap invalid: ..."   │
+  │<──────────────────────────────────│
 ```
 
 ### Validation Steps
@@ -109,39 +160,47 @@ sequenceDiagram
 1. **Commons check**: Is this commons enforced by this relay?
 2. **Pubkey check**: If pubkey == collective, accept (no cap needed)
 3. **Cap parse**: Extract cap from tag (fetch if referenced)
-4. **Signature check**: Was cap signed by the collective, a steward, or valid delegator?
+4. **Signature check**: Was cap signed by the collective or valid delegator?
 5. **Grantee check**: Does cap grantee match event pubkey?
 6. **Action check**: Does cap authorize this kind?
-7. **Expiry check**: Is cap still valid (not expired)?
-8. **Revocation check**: Has cap been revoked?
+7. **Commons check**: Does cap authorize this specific commons?
+8. **Expiry check**: Is cap still valid (not expired)?
+9. **Revocation check**: Has cap been revoked?
 
 ### Error Responses
 
 ```
-NOTICE "cap required: commons <collective_npub> is enforced"
+NOTICE "cap required: commons 39002:<pubkey>:<uuid> is enforced"
 NOTICE "cap invalid: signature verification failed"
 NOTICE "cap invalid: grantee mismatch"
 NOTICE "cap invalid: action not authorized for kind:1"
+NOTICE "cap invalid: commons not authorized"
 NOTICE "cap invalid: expired"
 NOTICE "cap invalid: revoked"
 ```
 
-## Indexing
+## Querying Commons Content
 
-Relays index events by commons for efficient queries:
+Using standard NIP-33 `#a` filter (already supported by relays):
 
 ```json
-// Query all events in a collective's commons
+// Query all events in a specific commons
 {
   "kinds": [1],
-  "#commons": ["<collective_npub>"]
+  "#a": ["39002:<collective_npub>:<uuid>"]
 }
 
-// Query all events in commons by specific author
+// Query events in commons by specific author
 {
   "kinds": [1],
-  "#commons": ["<collective_npub>"],
+  "#a": ["39002:<collective_npub>:<uuid>"],
   "authors": ["<member_npub>"]
+}
+
+// Query all commons definitions for a collective
+{
+  "kinds": [39002],
+  "authors": ["<collective_npub>"]
 }
 ```
 
@@ -153,7 +212,7 @@ For private commons, extend AUTH with cap:
 // Standard NIP-42 challenge
 ["AUTH", "<challenge>"]
 
-// Response with cap for commons access
+// Response with cap for commons read access
 {
   "kind": 22242,
   "tags": [
@@ -189,6 +248,7 @@ When processing multiple events from same member, reuse cap validation result.
 |-----|--------------|
 | NIP-01 | Standard event structure |
 | NIP-29 | Compatible - relay groups can adopt commons |
+| NIP-33 | Uses addressable events pattern |
 | NIP-42 | Extended for cap-based AUTH |
 | NIP-65 | Collectives advertise supporting relays |
 | NIP-72 | Communities can adopt commons |
@@ -200,15 +260,17 @@ When processing multiple events from same member, reuse cap validation result.
 3. **Partial enforcement**: Should relays enforce some commons but not others?
 4. **Gossip**: How do relays learn about revocations?
 5. **Migration**: How to transition existing NIP-29 groups?
+6. **Commons discovery**: Should commons definitions be published to relays or kept private?
 
 ## Event Kinds
 
-No new kinds. This NIP defines relay behavior for:
-- Events with `["commons", "..."]` tag
-- NIP-42 AUTH with cap attachment
+| Kind | Description |
+|------|-------------|
+| 39002 | Commons definition |
 
 ## See Also
 
 - [NIP-29: Relay-based Groups](https://github.com/nostr-protocol/nips/blob/master/29.md)
+- [NIP-33: Parameterized Replaceable Events](https://github.com/nostr-protocol/nips/blob/master/33.md)
 - [NIP-42: Authentication](https://github.com/nostr-protocol/nips/blob/master/42.md)
 - [NIP-65: Relay List Metadata](https://github.com/nostr-protocol/nips/blob/master/65.md)

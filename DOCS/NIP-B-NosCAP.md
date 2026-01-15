@@ -35,7 +35,7 @@ NosCAP provides fine-grained, attenuatable capabilities inspired by UCAN and obj
     ["cap", "publish", "kind:1"],
     ["cap", "publish", "kind:30078"],
     ["cap", "delete", "kind:1"],
-    ["commons", "<collective_npub>"],
+    ["a", "39002:<collective_npub>:<commons_uuid>"],
     ["expiry", "1767225600"],
     ["parent", "<parent_cap_event_id>"]
   ],
@@ -52,7 +52,7 @@ NosCAP provides fine-grained, attenuatable capabilities inspired by UCAN and obj
 |-----|----------|-------------|
 | `p` | Yes | Grantee pubkey |
 | `cap` | Yes (1+) | Action grant: `[action, scope]` |
-| `commons` | Yes | Collective npub this cap applies to |
+| `a` | Yes | Commons reference (NIP-33 addressable event: `39002:pubkey:d-tag`) |
 | `expiry` | No | Unix timestamp when cap expires |
 | `parent` | No | Parent cap event ID (for delegation chains) |
 
@@ -96,7 +96,7 @@ Event includes cap event ID + relay hints:
   "pubkey": "<member_npub>",
   "kind": 1,
   "tags": [
-    ["commons", "<collective_npub>"],
+    ["a", "39002:<collective_npub>:<commons_uuid>"],
     ["cap", "<cap_event_id>", "wss://relay.example.com"]
   ],
   "content": "Hello from the collective!"
@@ -118,7 +118,7 @@ Cap encoded as base64url token inline:
   "pubkey": "<member_npub>",
   "kind": 1,
   "tags": [
-    ["commons", "<collective_npub>"],
+    ["a", "39002:<collective_npub>:<commons_uuid>"],
     ["cap", "noscap1<base64url_encoded_cap>"]
   ],
   "content": "Hello from the collective!"
@@ -154,7 +154,7 @@ Collective ──cap──► Steward ──cap──► Contributor
 ### Chain Structure
 
 ```json
-// Steward's cap (from collective)
+// Steward's cap (from collective) - grants access to ALL commons
 {
   "pubkey": "<collective_npub>",
   "kind": 39100,
@@ -162,18 +162,30 @@ Collective ──cap──► Steward ──cap──► Contributor
     ["p", "<steward_npub>"],
     ["cap", "publish", "*"],
     ["cap", "delegate", "*"],
-    ["commons", "<collective_npub>"]
+    ["a", "39002:<collective_npub>:*"]
   ]
 }
 
-// Contributor's cap (from steward)
+// Steward's cap (from collective) - grants access to specific commons
+{
+  "pubkey": "<collective_npub>",
+  "kind": 39100,
+  "tags": [
+    ["p", "<steward_npub>"],
+    ["cap", "publish", "*"],
+    ["cap", "delegate", "*"],
+    ["a", "39002:<collective_npub>:550e8400-e29b-41d4-a716-446655440000"]
+  ]
+}
+
+// Contributor's cap (from steward) - attenuated to kind:1 in specific commons
 {
   "pubkey": "<steward_npub>",
   "kind": 39100,
   "tags": [
     ["p", "<contributor_npub>"],
     ["cap", "publish", "kind:1"],
-    ["commons", "<collective_npub>"],
+    ["a", "39002:<collective_npub>:550e8400-e29b-41d4-a716-446655440000"],
     ["parent", "<steward_cap_event_id>"]
   ]
 }
@@ -223,7 +235,7 @@ For compromised caps, relays may support npub-level blocks as an override mechan
 
 | UCAN Concept | NosCAP Equivalent |
 |--------------|-------------------|
-| Resource URI | `["commons", "collective_npub"]` + kind |
+| Resource URI | `["a", "39002:collective_npub:commons_uuid"]` (NIP-33 addressable reference) |
 | Capability | `["cap", "action", "scope"]` |
 | Attenuation | Child cap ⊆ parent cap |
 | Proof chain | `["parent", "cap_event_id"]` |
@@ -242,6 +254,8 @@ For compromised caps, relays may support npub-level blocks as an override mechan
 2. **Delegation depth**: Limit chain length for validation performance?
 3. **Cap renewal**: Auto-renewal flow or manual?
 4. **Partial revocation**: Revoke specific actions without full revocation?
+5. **Collective as CAP-only issuer**: Should collectives be restricted to signing only CAPs (and metadata), with stewards always signing content as themselves? This improves accountability and enables cold storage of collective keys.
+6. **Specialized CAP bunker**: If collectives are CAP-only issuers, should the collective's NIP-46 bunker be specialized for CAP-issuing rather than general signing? Trade-off: simpler bunker interface vs. reusability of CAP-issuing logic across implementations.
 
 ## Event Kinds
 
