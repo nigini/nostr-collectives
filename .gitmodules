@@ -1,0 +1,8 @@
+[submodule "MODULES/NosColl-client"]
+	path = MODULES/NosColl-client
+	url = git@github.com:nigini/NosColl-client.git
+	branch = main
+[submodule "MODULES/caped-bucket"]
+	path = MODULES/caped-bucket
+	url = git@github.com:nigini/caped-bucket.git
+	branch = main
