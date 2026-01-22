@@ -6,27 +6,46 @@
 
 ## The Idea
 
-A **collective** is an npub that represents a group—not an individual. Members receive **capabilities (caps)** to act within the collective's **space**. Stewards govern who can do what.
-
-```
-Today:    Identity = Individual (one person, one npub)
-Proposed: Identity = Individual OR Collective
-```
+A **collective** is an npub that represents a group. Members receive **capabilities (caps)** to act within the collective's spaces (a.k.a. Commons). Stewards use the collective key to govern commons and permisisons.
 
 This enables:
-- **Shared identity**: A collective owns an npub, profile, and voice
-- **Delegated action**: Members publish on behalf of the collective via caps
-- **Collective networks**: Groups form alliances by exchanging caps with each other
+- **Shared identity**: A collective owns an npub, profile, content, and relationships
+- **Distributed permissions**: Members act on collective commons based on received CAPs
+- **Collective networks**: Groups can form alliances by exchanging CAPs to commons
 
-## Three Primitives
+## Three Abstractions
 
-| Primitive | Description | NIP |
-|-----------|-------------|-----|
-| **Collective Identity** | A group as an npub with stewards | [NIP-A](DOCS/NIP-A-Collective-Identity.md) |
-| **NosCAP** | Capability grants for actions in a space | [NIP-B](DOCS/NIP-B-NosCAP.md) |
-| **Commons Enforcement** | Relay validation of caps | [NIP-C](DOCS/NIP-C-Commons-Enforcement.md) |
+| Abstraction | Description | NIP |
+|-------------|-------------|-----|
+| **Collective Identity** | An npub that represents the Collective (creates commons & issue capabilities) | [NIP-A](DOCS/NIP-A-Collective-Identity.md) |
+| **NosCAP** | Capability grants for actions in a Collective Commons | [NIP-B](DOCS/NIP-B-NosCAP.md) |
+| **Commons Enforcement** | Relay enforced permissions (CAPs) to access commons | [NIP-C](DOCS/NIP-C-Commons-Enforcement.md) |
 
-## Documentation
+```mermaid
+flowchart LR
+    subgraph Client["🖥️ Client"]
+        subgraph Identity["🏛️ Collective Identity"]
+            npub["npub + nsec"]
+        end
+    end
+
+    subgraph Relay["📡 Relay"]
+        Commons["📂 Commons"]
+        CAPs["🎫 CAPs"]
+    end
+
+    Identity -->|"creates"| Commons
+    Identity -->|"issues"| CAPs
+    CAPs -.->|"grants access to"| Commons
+
+    style Client fill:#e0e7ff,stroke:#6366f1
+    style Identity fill:#c7d2fe,stroke:#6366f1
+    style Relay fill:#d1fae5,stroke:#10b981
+    style Commons fill:#fef3c7,stroke:#f59e0b
+    style CAPs fill:#ddd6fe,stroke:#8b5cf6
+```
+
+### Documentation
 
 - [Overview](DOCS/00-Overview.md) - Core concepts and terminology
 - [NIP-A: Collective Identity](DOCS/NIP-A-Collective-Identity.md) - What a collective IS

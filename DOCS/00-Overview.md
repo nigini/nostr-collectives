@@ -39,25 +39,37 @@ Members act within the collective's commons via capabilities.
 Stewards govern who can do what.
 ```
 
-### Three Primitives
+### Three Abstractions
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                   COLLECTIVE IDENTITY                        │
-│              (npub that represents a group)                  │
-│                                                              │
-│   ┌─────────────────────┐    ┌─────────────────────┐        │
-│   │       NosCAP        │    │  Commons Enforcement│        │
-│   │   (capabilities)    │───►│  (relay validation) │        │
-│   └─────────────────────┘    └─────────────────────┘        │
-└─────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+    subgraph Client["🖥️ Client"]
+        subgraph Identity["🏛️ Collective Identity"]
+            npub["npub + nsec"]
+        end
+    end
+
+    subgraph Relay["📡 Relay"]
+        Commons["📂 Commons"]
+        CAPs["🎫 CAPs"]
+    end
+
+    Identity -->|"creates"| Commons
+    Identity -->|"issues"| CAPs
+    CAPs -.->|"grants access to"| Commons
+
+    style Client fill:#e0e7ff,stroke:#6366f1
+    style Identity fill:#c7d2fe,stroke:#6366f1
+    style Relay fill:#d1fae5,stroke:#10b981
+    style Commons fill:#fef3c7,stroke:#f59e0b
+    style CAPs fill:#ddd6fe,stroke:#8b5cf6
 ```
 
-| Primitive | What it does |
-|-----------|--------------|
-| **Collective Identity** | Defines what a collective IS—an npub with stewards |
-| **NosCAP** | How capabilities are granted and attenuated |
-| **Commons Enforcement** | How relays validate caps and index collective content |
+| Abstraction | What it does |
+|-------------|--------------|
+| **Collective Identity** | An npub that represents the Collective (creates commons & issues capabilities) |
+| **NosCAP** | Capability grants for actions in a Collective Commons |
+| **Commons Enforcement** | Relay enforced permissions (CAPs) to access commons |
 
 ## Core Concepts
 
@@ -86,6 +98,16 @@ A member with authority to govern the collective:
 - Issues and revokes caps
 - Manages collective profile
 - Holds or shares access to collective's nsec
+
+## Key Management
+
+How do multiple stewards share control of a collective's nsec?
+
+| Approach | How it works | Trade-off |
+|----------|--------------|-----------|
+| **Shared Key** | Each steward holds a copy of the nsec | Simple but dangerous—any steward can act alone, no audit trail |
+| **Shared Bunker** | Remote signer (NIP-46) holds nsec and enforces policies | Good security, but trust the host |
+| **Sharded Key** | nsec split via threshold crypto (e.g., [Frostr](https://github.com/nickfarrow/frostr)); k-of-n stewards must cooperate to sign | Excellent security, but complex setup |
 
 ## Key Properties
 
