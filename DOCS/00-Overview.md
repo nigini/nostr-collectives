@@ -77,12 +77,12 @@ flowchart LR
 
 An **npub** that represents a group, organization, or multi-party entity. It has:
 - Profile (kind:0) - name, description, picture
-- Metadata (kind:39000) - stewards, policies
-- Commons - content published in its name
+- Metadata (kind:39000) - stewards, policies *(not yet implemented)*
+- Commons - named spaces for content
 
 ### Commons
 
-The collection of events belonging to a collective. Identified by the `["commons", "<collective_npub>"]` tag.
+A named space within a collective (kind:39002). Events reference their commons via the `["a", "39002:<collective_npub>:<uuid>"]` tag.
 
 ### Cap (Capability)
 
@@ -281,38 +281,36 @@ sequenceDiagram
 
 ### Action: Publishing with a CAP
 
-When a member publishes content to a commons, they attach their **CAP** as proof of authorization. The relay validates before accepting.
+A member first authenticates with CAP-AUTH, then publishes normally. The relay enforces permissions per-connection.
 
 ```mermaid
 sequenceDiagram
     autonumber
     participant A as 👤 Alice<br/>(npub1alice...)
     participant R as 🖥️ Relay<br/>(enforcing)
-    participant C as 🏛️ Collective<br/>(npub1coll...)
 
-    Note over A: Alice wants to post in "General" commons
+    A->>R: CONNECT (WebSocket)
+    R->>A: AUTH challenge
 
-    A->>A: Create note (kind:1)<br/>content: "Hello collective!"<br/>tags: [a, 39002:coll:general-uuid]
-    A->>A: Attach CAP reference<br/>tags: [cap, <cap_event_id>]
-    A->>A: Sign with Alice's nsec
-    A->>R: EVENT: note with CAP
+    A->>A: Build CAP-AUTH (kind:22242)<br/>embed full CAP as JSON
+    A->>R: CAP-AUTH (signed by Alice, CAP signed by collective)
 
     rect rgb(240, 240, 245)
-        Note over R: Relay Validation
-        R->>R: 1. Is commons enforced? ✓
-        R->>R: 2. Fetch/parse CAP
-        R->>R: 3. Verify CAP signature (by collective)
-        R->>R: 4. Check grantee == Alice ✓
-        R->>R: 5. Check action covers kind:1 ✓
-        R->>R: 6. Check commons matches ✓
-        R->>R: 7. Check not expired ✓
+        Note over R: Validate CAP-AUTH
+        R->>R: 1. Verify outer sig (Alice) ✓
+        R->>R: 2. Verify CAP sig (collective) ✓
+        R->>R: 3. Grantee == Alice ✓
+        R->>R: 4. Not expired ✓
+        R->>R: 5. Store grants for connection
     end
 
+    R-->>A: OK (authenticated)
+
+    A->>A: Create note (kind:1)<br/>content: "Hello collective!"<br/>tags: [a, 39002:coll:general-uuid]
+    A->>R: EVENT: note
+
+    R->>R: Has publish grant for this commons? ✓
     R-->>A: OK ✓
-
-    Note over R: Event stored and<br/>queryable via #a tag
-
-    R-->>C: Event visible in commons feed
 ```
 
 ### Action: Relay Enforcement
