@@ -1,0 +1,15 @@
+services:
+  relay:
+    build: ./caped-bucket
+    ports:
+      - "${RELAY_PORT}:3334"
+    env_file: .env
+
+  client:
+    build: ./NosColl-client
+    ports:
+      - "${CLIENT_PORT}:80"
+    environment:
+      - DEFAULT_RELAYS=${DEFAULT_RELAYS}
+    depends_on:
+      - relay
