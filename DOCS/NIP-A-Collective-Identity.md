@@ -37,6 +37,8 @@ Standard Nostr profile. No changes required.
 
 ### Collective Metadata (kind:39000)
 
+> **Not yet implemented.** The current prototype identifies collectives via a flag in the client's local storage. kind:39000 will enable on-protocol steward lists, membership models, and relay preferences.
+
 Extended metadata for collective-specific information.
 
 ```json

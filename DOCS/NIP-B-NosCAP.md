@@ -83,72 +83,22 @@ kind:30078:*        → Parameterized kind (any d-tag)
 ["cap", "delegate", "kind:1"]          // Can delegate kind:1 publish cap
 ```
 
-## Cap Encoding
+## CAP Presentation
 
-Caps can be transmitted in two ways when attached to events.
-
-### Option A: Referenced (Event ID)
-
-Event includes cap event ID + relay hints:
+CAPs are presented to relays via **CAP-AUTH** (see [NIP-C](NIP-C-Commons-Enforcement.md)): the full CAP event is embedded as JSON inside a NIP-42 AUTH event at connection time.
 
 ```json
-{
-  "pubkey": "<member_npub>",
-  "kind": 1,
-  "tags": [
-    ["a", "39002:<collective_npub>:<commons_uuid>"],
-    ["cap", "<cap_event_id>", "wss://relay.example.com"]
-  ],
-  "content": "Hello from the collective!"
-}
+["cap", "{\"kind\":39100,\"pubkey\":\"<collective>\",\"tags\":[...],\"sig\":\"...\"}"]
 ```
-
-| Pros | Cons |
-|------|------|
-| Smaller event payload | Relay must fetch cap separately |
-| Cap reusable across events | Extra round-trip latency |
-| Standard Nostr event reference | Dependency on cap-hosting relay |
-
-### Option B: Inline (NosCAP Token)
-
-Cap encoded as base64url token inline:
-
-```json
-{
-  "pubkey": "<member_npub>",
-  "kind": 1,
-  "tags": [
-    ["a", "39002:<collective_npub>:<commons_uuid>"],
-    ["cap", "noscap1<base64url_encoded_cap>"]
-  ],
-  "content": "Hello from the collective!"
-}
-```
-
-**Token format** (inspired by UCAN JWT):
-```
-noscap1<base64url([version, issuer, grantee, caps[], commons, expiry, created_at, sig])>
-```
-
-| Pros | Cons |
-|------|------|
-| Self-contained, no extra fetches | Larger event payload |
-| Works offline / across relays | Cap repeated in every event |
-| Faster validation | More complex parsing |
-
-### Recommendation
-
-Support both formats:
-- **Referenced**: For long-lived memberships, routine use
-- **Inline**: For cross-relay scenarios, ephemeral access, offline validation
 
 ## Delegation Chains
 
 Caps can be re-delegated with attenuation (fewer rights).
 
-```
-Collective ──cap──► Steward ──cap──► Contributor
-   (*)              (publish)         (publish:kind:1)
+```mermaid
+flowchart LR
+    C["Collective (*)"] -->|"cap"| S["Steward (publish)"]
+    S -->|"cap"| Co["Contributor (publish:kind:1)"]
 ```
 
 ### Chain Structure
@@ -251,11 +201,18 @@ For compromised caps, relays may support npub-level blocks as an override mechan
 ## Open Questions
 
 1. **Cap storage**: Published to relays (discoverable) or exchanged via NIP-44 DMs (private)?
-2. **Delegation depth**: Limit chain length for validation performance?
-3. **Cap renewal**: Auto-renewal flow or manual?
-4. **Partial revocation**: Revoke specific actions without full revocation?
-5. **Collective as CAP-only issuer**: Should collectives be restricted to signing only CAPs (and metadata), with stewards always signing content as themselves? This improves accountability and enables cold storage of collective keys.
-6. **Specialized CAP bunker**: If collectives are CAP-only issuers, should the collective's NIP-46 bunker be specialized for CAP-issuing rather than general signing? Trade-off: simpler bunker interface vs. reusability of CAP-issuing logic across implementations.
+2. **Cap renewal**: Auto-renewal flow or manual?
+3. **Partial revocation**: Revoke specific actions without full revocation?
+4. **Collective as CAP-only issuer**: Should collectives be restricted to signing only CAPs (and metadata), with stewards always signing content as themselves? This improves accountability and enables cold storage of collective keys.
+5. **Specialized CAP bunker**: If collectives are CAP-only issuers, should the collective's NIP-46 bunker be specialized for CAP-issuing rather than general signing? Trade-off: simpler bunker interface vs. reusability of CAP-issuing logic across implementations.
+
+## Future Work
+
+- **Explicit revocation** (`kind:39101`): Publish revocation events; relays check during AUTH
+- **Delegation chains**: Build and validate `parent` tag chains with attenuation enforcement (child caps must be a subset of parent caps)
+- **Kind-scoped grants**: Currently all caps use wildcard `*` scope; support `kind:N` scoping for finer control
+- **`delete` enforcement**: Relay should distinguish `delete` grants from `publish` for kind:5 events
+- **CAP delivery**: Define how members receive their CAPs (relay query, NIP-44 DM, gift wrap)
 
 ## Event Kinds
 

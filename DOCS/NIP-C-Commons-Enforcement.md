@@ -58,14 +58,14 @@ A commons is defined as an addressable event:
 
 A collective can have multiple commons with different purposes:
 
-```
-Collective (npub1abc...)
-├── Commons: "Research" (uuid: 550e8400-...)
-│   └── Members: Alice, Bob, Carol
-├── Commons: "Announcements" (uuid: 6ba7b810-...)
-│   └── Members: Stewards only (read-only for others)
-└── Commons: "General" (uuid: 7c9e6679-...)
-    └── Members: All members
+```mermaid
+flowchart TD
+    C["Collective (npub1abc...)"] --> R["Research (550e8400...)"]
+    C --> A["Announcements (6ba7b810...)"]
+    C --> G["General (7c9e6679...)"]
+    R --- R1["Members: Alice, Bob, Carol"]
+    A --- A1["Members: Stewards only"]
+    G --- G1["Members: All members"]
 ```
 
 ### Referencing Commons (NIP-33 `a` tag)
@@ -77,8 +77,7 @@ Events reference commons using the standard `a` tag for addressable events:
   "pubkey": "<member_npub>",
   "kind": 1,
   "tags": [
-    ["a", "39002:<collective_npub>:<uuid>"],
-    ["cap", "<cap_reference>"]
+    ["a", "39002:<collective_npub>:<uuid>"]
   ],
   "content": "Content in the commons"
 }
@@ -90,6 +89,8 @@ Events reference commons using the standard `a` tag for addressable events:
 - No new infrastructure needed
 - Works with existing filters: `#a`
 
+> **Note**: Events do NOT carry a CAP tag. Authorization is handled at the connection level via CAP-AUTH (see below), not per-event.
+
 ### Ownership Rules
 
 | Condition | Cap Required? |
@@ -97,86 +98,58 @@ Events reference commons using the standard `a` tag for addressable events:
 | `pubkey == collective_npub` | No (collective posting directly) |
 | `pubkey != collective_npub` | Yes (member needs cap) |
 
-### Cap Attachment
+## Commons Auto-Registration
 
-Events must include cap reference:
+When a relay receives a valid `kind:39002` event, it automatically registers that commons for enforcement. Any subsequent read/write to that commons requires appropriate CAP-AUTH.
 
-**Option A: Event ID reference**
-```json
-["cap", "<cap_event_id>", "wss://relay.example.com"]
-```
-
-**Option B: Inline token**
-```json
-["cap", "noscap1<base64url_encoded_cap>"]
-```
-
-## Relay Configuration
-
-Relays can enforce specific commons:
-
-```json
-{
-  "enforced_commons": [
-    {
-      "commons": "39002:<collective_npub>:<uuid>",
-      "require_cap": true,
-      "allowed_kinds": [1, 30023, 30078]
-    }
-  ],
-  "default_policy": "accept"
+```javascript
+// Relay auto-registers commons on receipt
+if (event.kind === 39002) {
+  const uuid = event.tags.find(t => t[0] === "d")?.[1]
+  enforcedCommons.add(`39002:${event.pubkey}:${uuid}`)
 }
 ```
 
-**Configuration options**:
-- `commons` - The commons address (kind:pubkey:d-tag)
-- `require_cap` - Whether caps are required
-- `allowed_kinds` - Event kinds allowed in this commons
-- `default_policy` - What to do for unconfigured commons
+No static configuration file is needed — commons are enforced as soon as they are created.
 
-## Validation Flow
+## Enforcement
 
-```
-Client                              Relay
-  │                                   │
-  │  EVENT with a-tag + cap           │
-  │──────────────────────────────────>│
-  │                                   │
-  │                    1. Is commons enforced?
-  │                    2. Parse cap (inline or fetch)
-  │                    3. Validate cap signature
-  │                    4. Validate grantee matches pubkey
-  │                    5. Validate action covers this kind
-  │                    6. Validate commons matches cap
-  │                    7. Check not expired
-  │                    8. Check not revoked
-  │                                   │
-  │  OK / NOTICE "cap invalid: ..."   │
-  │<──────────────────────────────────│
+Authorization is checked at two points: **write** (EVENT) and **read** (REQ). Both use the grants stored during CAP-AUTH (see below).
+
+### Write Enforcement (EVENT)
+
+```mermaid
+flowchart TD
+    E["EVENT received"] --> A{"Has commons a-tag?"}
+    A -->|No| ACCEPT["Accept"]
+    A -->|Yes| B{"Commons enforced?"}
+    B -->|No| ACCEPT
+    B -->|Yes| C{"pubkey == collective?"}
+    C -->|Yes| ACCEPT
+    C -->|No| D{"Connection authenticated?"}
+    D -->|No| DENY["Reject: auth-required"]
+    D -->|Yes| F{"pubkey matches auth?"}
+    F -->|No| DENY2["Reject: pubkey mismatch"]
+    F -->|Yes| G{"Has publish grant for this commons?"}
+    G -->|Yes| ACCEPT
+    G -->|No| DENY3["Reject: unauthorized"]
 ```
 
-### Validation Steps
+### Read Enforcement (REQ)
 
-1. **Commons check**: Is this commons enforced by this relay?
-2. **Pubkey check**: If pubkey == collective, accept (no cap needed)
-3. **Cap parse**: Extract cap from tag (fetch if referenced)
-4. **Signature check**: Was cap signed by the collective or valid delegator?
-5. **Grantee check**: Does cap grantee match event pubkey?
-6. **Action check**: Does cap authorize this kind?
-7. **Commons check**: Does cap authorize this specific commons?
-8. **Expiry check**: Is cap still valid (not expired)?
-9. **Revocation check**: Has cap been revoked?
+For subscriptions, the relay silently filters events the connection cannot access:
+
+- Events without a commons `a` tag: always included
+- Events in non-enforced commons: always included
+- Events in enforced commons: included only if the connection has `access` or `publish` grants for that commons
 
 ### Error Responses
 
-```
-NOTICE "cap required: commons 39002:<pubkey>:<uuid> is enforced"
-NOTICE "cap invalid: signature verification failed"
-NOTICE "cap invalid: grantee mismatch"
-NOTICE "cap invalid: action not authorized for kind:1"
-NOTICE "cap invalid: commons not authorized"
-NOTICE "cap invalid: expired"
-NOTICE "cap invalid: revoked"
+Write rejections use the standard `OK` message with an error prefix:
+
+```json
+["OK", "<event_id>", false, "auth-required: this commons requires CAP authentication"]
+["OK", "<event_id>", false, "restricted: no publish permission for this commons"]
 ```
 
 ## Querying Commons Content
@@ -206,25 +179,9 @@ Using standard NIP-33 `#a` filter (already supported by relays):
 
 ## CAP-AUTH: Self-Contained Authorization
 
-For both **read** (subscriptions) and **write** (publishing) access to protected commons, clients authenticate by presenting a **self-contained CAP-AUTH event**. This extends NIP-42 with embedded capability proof.
+For both **read** (subscriptions) and **write** (publishing) access to protected commons, clients authenticate once per connection by presenting a **self-contained CAP-AUTH event**. This extends NIP-42 with embedded capability proof.
 
-### Why Self-Contained?
-
-Traditional approach (reference-based):
-```
-1. Client references CAP by ID
-2. Relay fetches CAP from storage
-3. Relay validates CAP
-4. Multiple round-trips, external dependencies
-```
-
-Self-contained approach:
-```
-1. Client embeds FULL CAP in signed AUTH event
-2. Relay validates in one step
-3. No fetching, no external dependencies
-4. Everything needed is in the message
-```
+The client embeds the **full CAP** in a signed AUTH event. The relay validates both signatures in one step — no fetching, no external dependencies, everything needed is in the message.
 
 ### CAP-AUTH Event Structure
 
@@ -256,20 +213,22 @@ The `cap` tag contains the **full CAP event as JSON**, not just a reference:
 | **Outer** (AUTH event) | Sender is the grantee pubkey |
 | **Inner** (embedded CAP) | Collective authorized this grantee |
 
-```
-┌─────────────────────────────────────────────────────────┐
-│  CAP-AUTH Event                                         │
-│  ├── pubkey: grantee_abc123        ← WHO is requesting  │
-│  ├── sig: [grantee's signature]    ← PROOF of identity  │
-│  └── tags:                                              │
-│       └── cap: {                                        │
-│             pubkey: collective_xyz  ← WHO authorized    │
-│             tags: [p, grantee_abc]  ← WHO is authorized │
-│             tags: [cap, publish, *] ← WHAT is allowed   │
-│             tags: [a, 39002:xyz:*]  ← WHERE it applies  │
-│             sig: [collective's sig] ← PROOF of grant    │
-│           }                                             │
-└─────────────────────────────────────────────────────────┘
+```mermaid
+block-beta
+    columns 1
+    block:AUTH["CAP-AUTH Event"]
+        columns 2
+        A["pubkey: grantee"] B["WHO is requesting"]
+        C["sig: grantee signature"] D["PROOF of identity"]
+        block:CAP["Embedded CAP"]:2
+            columns 2
+            E["pubkey: collective"] F["WHO authorized"]
+            G["tag p: grantee"] H["WHO is authorized"]
+            I["tag cap: publish, *"] J["WHAT is allowed"]
+            K["tag a: 39002:xyz:uuid"] L["WHERE it applies"]
+            M["sig: collective signature"] N["PROOF of grant"]
+        end
+    end
 ```
 
 ### Relay Validation (Simple!)
@@ -309,107 +268,76 @@ function validateCapAuth(authEvent) {
 
 ### Connection State After AUTH
 
-Once validated, the relay stores the connection's permissions:
+Once validated, the relay stores the connection's grants as a flat list:
 
 ```javascript
 connections.set(socketId, {
   pubkey: "grantee_abc123",
-  caps: [
-    {
-      commons: "39002:collective_xyz:*",
-      actions: ["publish/*", "delete/*", "access/*"]
-    }
+  grants: [
+    { action: "publish", scope: "*", commons: "39002:collective_xyz:uuid" },
+    { action: "access", scope: "*", commons: "39002:collective_xyz:uuid" }
   ]
 })
 ```
 
-### Enforcement Points
-
-| Operation | Enforcement |
-|-----------|-------------|
-| **EVENT** (write) | Check connection has `publish` for target commons |
-| **REQ** (read) | Filter results to only commons connection has `access` for |
+Each grant has an `action` (publish, access), a `scope` (event kind or `*` for all), and the `commons` reference it applies to.
 
 ### Full Flow
 
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant R as Relay
+
+    C->>R: CONNECT (WebSocket)
+    R->>C: AUTH challenge
+
+    C->>R: CAP-AUTH (signed, with full CAP)
+
+    Note right of R: 1. Verify outer sig
+    Note right of R: 2. Parse embedded CAP
+    Note right of R: 3. Verify CAP sig (kind:39100)
+    Note right of R: 4. Check grantee match
+    Note right of R: 5. Check expiry
+    Note right of R: 6. Store grants
+
+    R->>C: OK (authenticated)
+
+    C->>R: REQ / EVENT
+    Note right of R: Enforced per connection grants
 ```
-Client                              Relay
-  │                                   │
-  │  CONNECT (WebSocket)              │
-  │──────────────────────────────────>│
-  │                                   │
-  │  AUTH challenge                   │
-  │<──────────────────────────────────│
-  │                                   │
-  │  CAP-AUTH (signed, with full CAP) │
-  │──────────────────────────────────>│
-  │                                   │
-  │         ┌─────────────────────────┤
-  │         │ 1. Verify outer sig     │
-  │         │ 2. Parse embedded CAP   │
-  │         │ 3. Verify CAP sig       │
-  │         │ 4. Check grantee match  │
-  │         │ 5. Store permissions    │
-  │         └─────────────────────────┤
-  │                                   │
-  │  OK (authenticated)               │
-  │<──────────────────────────────────│
-  │                                   │
-  │  REQ / EVENT                      │
-  │──────────────────────────────────>│
-  │         (enforced per connection) │
-```
-
-### Benefits
-
-1. **No external fetches**: Everything needed is in the AUTH message
-2. **Simple validation**: Just signature checks and field matching
-3. **Works offline**: No dependency on CAP being stored elsewhere
-4. **Minimal relay changes**: ~50 lines of validation code
-5. **Standard Nostr**: Uses existing event structure and signatures
-
-## Performance Considerations
-
-### Cap Caching
-
-Relays should cache validated caps:
-- Key: cap event ID
-- Value: parsed cap + validation result
-- TTL: min(cap expiry, 1 hour)
-
-### Chain Depth Limits
-
-For delegation chains, recommend max depth of 3-5 to bound validation time.
-
-### Batch Validation
-
-When processing multiple events from same member, reuse cap validation result.
 
 ## Relationship to Existing NIPs
 
 | NIP | Relationship |
 |-----|--------------|
 | NIP-01 | Standard event structure |
+| NIP-11 | Relay information document (relay should advertise NIP-42 support) |
 | NIP-29 | Compatible - relay groups can adopt commons |
 | NIP-33 | Uses addressable events pattern |
-| NIP-42 | Extended for cap-based AUTH |
+| NIP-42 | Extended for CAP-based AUTH |
 | NIP-65 | Collectives advertise supporting relays |
-| NIP-72 | Communities can adopt commons |
 
 ## Open Questions
 
-1. **Cross-relay validation**: Can relay A validate cap stored only on relay B?
-2. **Performance**: What's the overhead for high-volume commons?
-3. **Partial enforcement**: Should relays enforce some commons but not others?
-4. **Gossip**: How do relays learn about revocations?
-5. **Migration**: How to transition existing NIP-29 groups?
-6. **Commons discovery**: Should commons definitions be published to relays or kept private?
+1. **Gossip**: How do relays learn about revocations?
+2. **Migration**: How to transition existing NIP-29 groups?
+3. **Commons discovery**: Should commons definitions be published to relays or kept private?
+
+## Future Work
+
+- **CAP revocation** (`kind:39101`): Relays should check revocation status during AUTH validation
+- **Delegation chains**: Validate `parent` tag chains with depth limits (3-5 max)
+- **CAP kind validation**: Verify embedded CAP is `kind:39100` (not just any signed event)
+- **`relay` tag validation**: Check AUTH event `relay` tag matches to prevent cross-relay replay
+- **`delete` action enforcement**: Separate grant for `kind:5` deletion events
 
 ## Event Kinds
 
 | Kind | Description |
 |------|-------------|
 | 39002 | Commons definition |
+| 22242 | CAP-AUTH event (NIP-42 extension) |
 
 ## See Also
 
