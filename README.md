@@ -51,6 +51,7 @@ flowchart LR
 - [NIP-A: Collective Identity](DOCS/NIP-A-Collective-Identity.md) - What a collective IS
 - [NIP-B: NosCAP](DOCS/NIP-B-NosCAP.md) - Capability system
 - [NIP-C: Commons Enforcement](DOCS/NIP-C-Commons-Enforcement.md) - Relay validation
+- [Policy-Based Signer](DOCS/Policy-Based-Signer.md) - Governance of shared keys via portable signing policies
 - [Socialroots Integration](DOCS/Socialroots-Integration.md) - Use case and architecture
 
 ## Roadmap

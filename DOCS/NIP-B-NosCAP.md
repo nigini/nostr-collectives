@@ -204,7 +204,7 @@ For compromised caps, relays may support npub-level blocks as an override mechan
 2. **Cap renewal**: Auto-renewal flow or manual?
 3. **Partial revocation**: Revoke specific actions without full revocation?
 4. **Collective as CAP-only issuer**: Should collectives be restricted to signing only CAPs (and metadata), with stewards always signing content as themselves? This improves accountability and enables cold storage of collective keys.
-5. **Specialized CAP bunker**: If collectives are CAP-only issuers, should the collective's NIP-46 bunker be specialized for CAP-issuing rather than general signing? Trade-off: simpler bunker interface vs. reusability of CAP-issuing logic across implementations.
+5. **Specialized CAP bunker**: If collectives are CAP-only issuers, should the collective's NIP-46 bunker be specialized for CAP-issuing rather than general signing? Trade-off: simpler bunker interface vs. reusability of CAP-issuing logic across implementations. See [Policy-Based Signer](Policy-Based-Signer.md) for a design that supports CAP-specific rules via the `match` field (e.g., different approval thresholds for CAPs with delegate power).
 
 ## Future Work
 

@@ -371,3 +371,4 @@ This means **any relay can add CAP enforcement with minimal effort**—it's just
 - [NIP-A: Collective Identity](NIP-A-Collective-Identity.md) - Technical specification
 - [NIP-B: NosCAP](NIP-B-NosCAP.md) - Capability system details
 - [NIP-C: Commons Enforcement](NIP-C-Commons-Enforcement.md) - Relay validation
+- [Policy-Based Signer](Policy-Based-Signer.md) - Governance of shared keys via portable signing policies
