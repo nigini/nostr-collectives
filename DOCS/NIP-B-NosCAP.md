@@ -1,8 +1,9 @@
 # NIP-B: NosCAP (Nostr Capabilities)
 
-**Status**: Draft
-**Depends on**: NIP-A (Collective Identity)
-**Required by**: NIP-C (Commons Enforcement)
+- **Status**: Draft
+- **Depends on**: [NIP-A (Collective Identity)](NIP-A-Collective-Identity.md)
+- **Required by**: [NIP-C (Commons Enforcement)](NIP-C-Commons-Enforcement.md)
+- **Related**: [Policy-Based Signer](Policy-Based-Signer.md), [Overview](00-Overview.md)
 
 ## Summary
 
@@ -15,7 +16,7 @@ Caps can be signed by:
 
 ## Motivation
 
-Current Nostr delegation (NIP-26) is limited:
+Current Nostr delegation (NIP-26, now deprecated) was limited:
 - Binary (full delegation or nothing)
 - No action scoping
 - No attenuation (re-delegation with fewer rights)
@@ -144,7 +145,7 @@ flowchart LR
 ### Validation Rules
 
 1. **Signature valid**: Issuer signed the cap
-2. **Grantee matches**: Event pubkey matches cap grantee
+2. **Grantee matches**: Publishing member's pubkey matches the CAP's `p` tag (grantee)
 3. **Action covered**: Event kind included in cap scope
 4. **Not expired**: Current time < expiry
 5. **Chain valid**: If parent exists, recursively validate
@@ -223,6 +224,7 @@ For compromised caps, relays may support npub-level blocks as an override mechan
 
 ## See Also
 
-- [NIP-26: Delegated Event Signing](https://github.com/nostr-protocol/nips/blob/master/26.md)
+- [NIP-C: Commons Enforcement](NIP-C-Commons-Enforcement.md)
+- [NIP-26: Delegated Event Signing](https://github.com/nostr-protocol/nips/blob/master/26.md) (deprecated)
 - [UCAN Specification](https://github.com/ucan-wg/spec)
 - [Object-Capability Security](https://en.wikipedia.org/wiki/Object-capability_model)

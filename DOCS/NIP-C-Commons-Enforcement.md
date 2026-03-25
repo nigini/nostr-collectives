@@ -1,7 +1,8 @@
 # NIP-C: Commons Enforcement
 
-**Status**: Draft
-**Depends on**: NIP-A (Collective Identity), NIP-B (NosCAP)
+- **Status**: Draft
+- **Depends on**: [NIP-A (Collective Identity)](NIP-A-Collective-Identity.md), [NIP-B (NosCAP)](NIP-B-NosCAP.md)
+- **Related**: [Overview](00-Overview.md), [Policy-Based Signer](Policy-Based-Signer.md)
 
 ## Summary
 
@@ -208,62 +209,24 @@ The `cap` tag contains the **full CAP event as JSON**, not just a reference:
 
 ### Two Signatures, One Message
 
-| Signature | Proves |
-|-----------|--------|
-| **Outer** (AUTH event) | Sender is the grantee pubkey |
-| **Inner** (embedded CAP) | Collective authorized this grantee |
+A CAP-AUTH event carries two nested signatures that together prove both **identity** (who is making the request) and **authorization** (what they're allowed to do and where). The relay validates both in a single step with no external lookups:
 
 ```mermaid
-block-beta
-    columns 1
-    block:AUTH["CAP-AUTH Event"]
-        columns 2
-        A["pubkey: grantee"] B["WHO is requesting"]
-        C["sig: grantee signature"] D["PROOF of identity"]
-        block:CAP["Embedded CAP"]:2
-            columns 2
-            E["pubkey: collective"] F["WHO authorized"]
-            G["tag p: grantee"] H["WHO is authorized"]
-            I["tag cap: publish, *"] J["WHAT is allowed"]
-            K["tag a: 39002:xyz:uuid"] L["WHERE it applies"]
-            M["sig: collective signature"] N["PROOF of grant"]
+flowchart TB
+    subgraph AUTH["CAP-AUTH Event (signed by grantee)"]
+        A1["pubkey: grantee — WHO is requesting"]
+        A2["sig: grantee — PROOF of identity"]
+        subgraph CAP["Embedded CAP (signed by collective)"]
+            C1["pubkey: collective — WHO authorized"]
+            C2["tag p: grantee — WHO is authorized"]
+            C3["tag cap: publish, * — WHAT is allowed"]
+            C4["tag a: 39002:xyz:uuid — WHERE it applies"]
+            C5["sig: collective — PROOF of grant"]
         end
     end
-```
 
-### Relay Validation (Simple!)
-
-```javascript
-function validateCapAuth(authEvent) {
-  // 1. Verify outer signature (proves sender owns pubkey)
-  if (!verifySignature(authEvent))
-    return { ok: false, reason: "invalid auth signature" }
-
-  // 2. Extract embedded CAP
-  const capJson = authEvent.tags.find(t => t[0] === 'cap')?.[1]
-  const cap = JSON.parse(capJson)
-
-  // 3. Verify CAP signature (proves collective issued it)
-  if (!verifySignature(cap))
-    return { ok: false, reason: "invalid cap signature" }
-
-  // 4. Check grantee matches auth pubkey
-  const grantee = cap.tags.find(t => t[0] === 'p')?.[1]
-  if (grantee !== authEvent.pubkey)
-    return { ok: false, reason: "grantee mismatch" }
-
-  // 5. Check not expired
-  const expiry = cap.tags.find(t => t[0] === 'expiry')?.[1]
-  if (expiry && parseInt(expiry) < Date.now() / 1000)
-    return { ok: false, reason: "cap expired" }
-
-  // 6. Store grants for this connection
-  return {
-    ok: true,
-    pubkey: authEvent.pubkey,
-    grants: parseGrants(cap)
-  }
-}
+    style AUTH fill:#e0e7ff,stroke:#6366f1
+    style CAP fill:#ddd6fe,stroke:#8b5cf6
 ```
 
 ### Connection State After AUTH
@@ -320,7 +283,9 @@ sequenceDiagram
 
 ## Open Questions
 
-1. **Gossip**: How do relays learn about revocations?
+1. **Revocation**: The current design embeds the full CAP in CAP-AUTH, making validation self-contained (no external lookups). But this means a revoked CAP remains valid until it expires. Two approaches under consideration:
+   - **Expiry-based** (current): CAPs have short TTL and must be renewed. Revocation = don't renew. Simple but coarse — revocation takes effect only after expiry.
+   - **Replaceable CAPs**: Make CAPs replaceable events (kind:39100 with a `d` tag per grantee). The issuer can update or blank the CAP to revoke it. The relay fetches the latest CAP version at AUTH time instead of trusting the embedded copy. This adds latency and an external dependency, but provides real-time revocation. A relay could cache CAPs and refresh periodically to balance speed and freshness.
 2. **Migration**: How to transition existing NIP-29 groups?
 3. **Commons discovery**: Should commons definitions be published to relays or kept private?
 
